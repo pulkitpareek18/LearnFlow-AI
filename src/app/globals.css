@@ -1,0 +1,396 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand Colors */
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --primary-light: #818cf8;
+  --secondary: #10b981;
+  --secondary-dark: #059669;
+  --accent: #f59e0b;
+
+  /* Neutral Colors */
+  --background: #ffffff;
+  --foreground: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --card: #ffffff;
+  --card-foreground: #1f2937;
+
+  /* Input Colors */
+  --input-bg: #ffffff;
+  --input-text: #1f2937;
+  --input-placeholder: #9ca3af;
+  --input-border: #d1d5db;
+
+  /* Semantic Colors */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #334155;
+    --card: #1e293b;
+    --card-foreground: #f1f5f9;
+
+    /* Input Colors - Dark Mode */
+    --input-bg: #1e293b;
+    --input-text: #f1f5f9;
+    --input-placeholder: #64748b;
+    --input-border: #475569;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ==========================================
+   Accessibility Styles
+   ========================================== */
+
+/* Font Size Adjustments */
+.font-small {
+  font-size: 87.5%;
+}
+
+.font-medium {
+  font-size: 100%;
+}
+
+.font-large {
+  font-size: 112.5%;
+}
+
+.font-extra-large {
+  font-size: 125%;
+}
+
+/* Line Spacing */
+.line-spacing-normal {
+  line-height: 1.5;
+}
+
+.line-spacing-relaxed {
+  line-height: 1.75;
+}
+
+.line-spacing-loose {
+  line-height: 2;
+}
+
+/* Font Families */
+.font-default {
+  font-family: var(--font-sans);
+}
+
+/* OpenDyslexic-like styling */
+.font-dyslexia-friendly {
+  font-family: 'Comic Sans MS', 'Arial', sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  word-spacing: 0.1em;
+}
+
+.font-monospace {
+  font-family: var(--font-mono);
+}
+
+/* High Contrast Mode */
+.high-contrast {
+  --primary: #0066ff;
+  --primary-dark: #0052cc;
+  --secondary: #00cc66;
+  --background: #000000;
+  --foreground: #ffffff;
+  --muted: #cccccc;
+  --border: #ffffff;
+  --card: #1a1a1a;
+  --card-foreground: #ffffff;
+}
+
+.high-contrast * {
+  border-color: var(--border) !important;
+}
+
+.high-contrast a {
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+/* Color Blind Modes */
+.colorblind-protanopia {
+  filter: url('#protanopia-filter');
+}
+
+.colorblind-deuteranopia {
+  filter: url('#deuteranopia-filter');
+}
+
+.colorblind-tritanopia {
+  filter: url('#tritanopia-filter');
+}
+
+/* Reduced Motion */
+.reduce-motion,
+.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Focus Indicators */
+.focus-default *:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.focus-high-visibility *:focus-visible {
+  outline: 4px solid #ffff00;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 0, 0.3);
+}
+
+/* Screen Reader Optimizations */
+.screen-reader-optimized {
+  /* Ensure all interactive elements have visible labels */
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.sr-only-focusable:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Keyboard Only Mode */
+.keyboard-only *:focus {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Skip Links */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--primary);
+  color: white;
+  padding: 8px 16px;
+  text-decoration: none;
+  border-radius: 0 0 4px 0;
+  z-index: 100;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Live Region for Screen Reader Announcements */
+.live-region {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Accessible Buttons */
+.accessible-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.accessible-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Accessible Links */
+a {
+  text-decoration: underline;
+  text-decoration-skip-ink: auto;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Ensure proper heading hierarchy */
+h1 { font-size: 2.5rem; font-weight: 700; }
+h2 { font-size: 2rem; font-weight: 600; }
+h3 { font-size: 1.75rem; font-weight: 600; }
+h4 { font-size: 1.5rem; font-weight: 600; }
+h5 { font-size: 1.25rem; font-weight: 600; }
+h6 { font-size: 1rem; font-weight: 600; }
+
+/* Accessible Forms */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Default input styling - ensures proper contrast */
+input,
+select,
+textarea {
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  border-color: var(--input-border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* Color Blind SVG Filters */
+svg.accessibility-filters {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Improve touch targets for mobile */
+@media (pointer: coarse) {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* ==========================================
+   Gamification Animations
+   ========================================== */
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes confetti {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--x, 0), 200px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 2s ease-in-out infinite;
+}
+
+.animate-gradient-shift {
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-confetti {
+  --x: calc((var(--random, 0.5) - 0.5) * 200px);
+  animation: confetti 1.5s ease-out forwards;
+}
