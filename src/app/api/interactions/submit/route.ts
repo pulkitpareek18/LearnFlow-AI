@@ -4,15 +4,15 @@ import { authOptions } from '@/lib/auth/auth.config';
 import connectDB from '@/lib/db/mongoose';
 import Module from '@/lib/db/models/Module';
 import StudentProgress from '@/lib/db/models/StudentProgress';
-import { gradeReflectionResponse } from '@/lib/ai/anthropic';
-import { ApiResponse, InteractionType, MCQResponse, FillBlankResponse, ReflectionResponse, ConfirmResponse } from '@/types';
+import { gradeReflectionResponse, gradeCodeResponse } from '@/lib/ai/anthropic';
+import { ApiResponse, InteractionType, MCQResponse, FillBlankResponse, ReflectionResponse, ConfirmResponse, CodeResponse } from '@/types';
 
 interface SubmitInteractionRequest {
   moduleId: string;
   courseId: string;
   blockId: string;
   interactionType: InteractionType;
-  response: MCQResponse | FillBlankResponse | ReflectionResponse | ConfirmResponse;
+  response: MCQResponse | FillBlankResponse | ReflectionResponse | ConfirmResponse | CodeResponse;
   timeSpent: number; // in seconds
   attempt: number;
 }
@@ -88,6 +88,9 @@ export async function POST(req: NextRequest) {
         break;
       case 'confirm':
         result = gradeConfirm(response as ConfirmResponse);
+        break;
+      case 'code':
+        result = await gradeCode(interaction, response as CodeResponse);
         break;
       default:
         return NextResponse.json<ApiResponse>(
@@ -401,4 +404,55 @@ function gradeConfirm(response: ConfirmResponse): InteractionResult {
     maxScore: 0,
     feedback: messages[response.understandingLevel] || 'Response recorded.',
   };
+}
+
+// Grade Code interaction
+async function gradeCode(interaction: any, response: CodeResponse): Promise<InteractionResult & { testResults?: any[] }> {
+  try {
+    const testCases = interaction.testCases || [];
+    const maxPoints = interaction.points || 20;
+
+    // Use AI to grade the code
+    const grade = await gradeCodeResponse(
+      interaction.prompt,
+      response.code,
+      interaction.language,
+      interaction.solutionCode,
+      testCases,
+      interaction.rubric,
+      maxPoints
+    );
+
+    // Calculate score based on test results
+    const passedTests = grade.testResults?.filter((r: any) => r.passed).length || 0;
+    const totalTests = testCases.length;
+    const testScore = totalTests > 0
+      ? Math.round((passedTests / totalTests) * maxPoints * 0.7) // 70% for tests
+      : 0;
+    const codeQualityScore = Math.round(grade.codeQualityScore * maxPoints * 0.3); // 30% for code quality
+    const totalScore = Math.min(testScore + codeQualityScore, maxPoints);
+
+    return {
+      isCorrect: passedTests === totalTests && grade.codeQualityScore >= 0.7,
+      score: totalScore,
+      maxScore: maxPoints,
+      feedback: grade.feedback,
+      aiFeedback: JSON.stringify({
+        suggestions: grade.suggestions,
+        codeQualityNotes: grade.codeQualityNotes,
+        passedTests,
+        totalTests,
+      }),
+      testResults: grade.testResults,
+    };
+  } catch (error) {
+    console.error('Error grading code:', error);
+    // Fallback to basic test-based grading
+    return {
+      isCorrect: undefined,
+      score: 0,
+      maxScore: interaction.points || 20,
+      feedback: 'Your code has been submitted. Automated testing is currently unavailable.',
+    };
+  }
 }

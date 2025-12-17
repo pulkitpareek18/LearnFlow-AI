@@ -53,6 +53,38 @@ export interface IUser {
   updatedAt: Date;
 }
 
+// Code Resource for course (GitHub repos or code files)
+export interface CodeResource {
+  id: string;
+  type: 'github_repo' | 'github_file' | 'uploaded_file';
+  url?: string; // GitHub URL
+  fileName?: string;
+  content?: string; // File content
+  language: ProgrammingLanguage;
+  description?: string;
+  mappedModuleIds?: string[]; // Which modules this code relates to
+}
+
+// Teacher Instructions for AI course generation
+export interface TeacherInstructions {
+  generalInstructions?: string; // General guidance for course generation
+  includeCodeQuestions?: boolean; // Whether to include coding exercises
+  codeQuestionTypes?: ('implementation' | 'debugging' | 'completion' | 'review')[]; // Types of code questions
+  preferredLanguages?: ProgrammingLanguage[]; // Programming languages to use
+  difficultyDistribution?: {
+    easy: number; // Percentage, e.g., 30
+    medium: number; // e.g., 50
+    hard: number; // e.g., 20
+  };
+  focusAreas?: string[]; // Specific topics to emphasize
+  excludeTopics?: string[]; // Topics to avoid
+  assessmentPreferences?: {
+    includeQuizzes: boolean;
+    includeCodingChallenges: boolean;
+    includeReflections: boolean;
+  };
+}
+
 // Course Types
 export interface ICourse {
   _id: ObjectId;
@@ -67,6 +99,8 @@ export interface ICourse {
   chapters: ObjectId[];
   learningOutcomes?: LearningOutcome[]; // AI-suggested, teacher-approved outcomes
   interactiveSettings?: InteractiveSettings; // Adaptive learning settings
+  teacherInstructions?: TeacherInstructions; // Teacher's custom instructions for AI
+  codeResources?: CodeResource[]; // GitHub repos and code files
   createdAt: Date;
   updatedAt: Date;
 }
@@ -246,7 +280,7 @@ export interface SessionUser {
 // ==========================================
 
 // Interaction Types
-export type InteractionType = 'mcq' | 'fill_blank' | 'reflection' | 'reveal' | 'confirm';
+export type InteractionType = 'mcq' | 'fill_blank' | 'reflection' | 'reveal' | 'confirm' | 'code';
 export type ContentBlockType = 'text' | 'interaction';
 
 // MCQ Interaction
@@ -307,13 +341,41 @@ export interface ConfirmInteraction {
   }>;
 }
 
+// Code Interaction (coding exercises)
+export type ProgrammingLanguage = 'javascript' | 'typescript' | 'python' | 'java' | 'cpp' | 'c' | 'go' | 'rust' | 'html' | 'css' | 'sql';
+
+export interface TestCase {
+  id: string;
+  input: string;
+  expectedOutput: string;
+  isHidden: boolean; // Hidden test cases for evaluation
+  description?: string;
+}
+
+export interface CodeInteraction {
+  type: 'code';
+  prompt: string; // The coding question/challenge
+  language: ProgrammingLanguage;
+  starterCode?: string; // Initial code template
+  solutionCode?: string; // Reference solution for AI comparison
+  testCases: TestCase[];
+  hints?: string[];
+  rubric?: string; // Grading criteria for AI evaluation
+  timeLimit?: number; // Time limit in seconds for code execution
+  memoryLimit?: number; // Memory limit in MB
+  points: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  conceptsAssessed: string[]; // Concepts this question tests
+}
+
 // Union type for all interactions
 export type ContentInteraction =
   | MCQInteraction
   | FillBlankInteraction
   | ReflectionInteraction
   | RevealInteraction
-  | ConfirmInteraction;
+  | ConfirmInteraction
+  | CodeInteraction;
 
 // Content Block (text or interaction)
 export interface ContentBlock {
@@ -350,7 +412,7 @@ export interface InteractiveSettings {
 export interface InteractionResponse {
   blockId: string;
   interactionType: InteractionType;
-  response: MCQResponse | FillBlankResponse | ReflectionResponse | RevealResponse | ConfirmResponse;
+  response: MCQResponse | FillBlankResponse | ReflectionResponse | RevealResponse | ConfirmResponse | CodeResponse;
   isCorrect?: boolean;
   score?: number;
   maxScore: number;
@@ -379,6 +441,18 @@ export interface RevealResponse {
 
 export interface ConfirmResponse {
   understandingLevel: 'fully' | 'partially' | 'not_yet';
+}
+
+export interface CodeResponse {
+  code: string;
+  language: ProgrammingLanguage;
+  executionResults?: {
+    testCaseId: string;
+    passed: boolean;
+    actualOutput?: string;
+    error?: string;
+    executionTime?: number; // in ms
+  }[];
 }
 
 // Module Interaction Progress (per module)

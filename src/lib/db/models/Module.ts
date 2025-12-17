@@ -42,12 +42,24 @@ const BlankFieldSchema = new Schema(
   { _id: false }
 );
 
+// Test Case Schema for code interactions
+const TestCaseSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    input: { type: String, required: true },
+    expectedOutput: { type: String, required: true },
+    isHidden: { type: Boolean, default: false },
+    description: { type: String },
+  },
+  { _id: false }
+);
+
 // Content Interaction Schema (polymorphic - different fields for different types)
 const ContentInteractionSchema = new Schema(
   {
     type: {
       type: String,
-      enum: ['mcq', 'fill_blank', 'reflection', 'reveal', 'confirm'],
+      enum: ['mcq', 'fill_blank', 'reflection', 'reveal', 'confirm', 'code'],
       required: true,
     },
     // MCQ fields
@@ -73,6 +85,19 @@ const ContentInteractionSchema = new Schema(
         value: { type: String, enum: ['fully', 'partially', 'not_yet'] },
       },
     ],
+    // Code interaction fields
+    language: {
+      type: String,
+      enum: ['javascript', 'typescript', 'python', 'java', 'cpp', 'c', 'go', 'rust', 'html', 'css', 'sql'],
+    },
+    starterCode: { type: String },
+    solutionCode: { type: String },
+    testCases: [TestCaseSchema],
+    hints: [{ type: String }],
+    timeLimit: { type: Number, default: 5 }, // seconds
+    memoryLimit: { type: Number, default: 128 }, // MB
+    difficulty: { type: String, enum: ['easy', 'medium', 'hard'] },
+    conceptsAssessed: [{ type: String }],
     // Common field for graded interactions
     points: { type: Number, default: 0 },
   },

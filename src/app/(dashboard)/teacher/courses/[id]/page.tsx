@@ -20,6 +20,8 @@ import {
   X,
   Lightbulb,
   List,
+  Wand2,
+  Code2,
 } from 'lucide-react';
 import {
   Button,
@@ -265,6 +267,12 @@ export default function TeacherCourseDetailPage() {
               <Button variant="outline">
                 <Edit className="w-4 h-4 mr-2" />
                 Edit
+              </Button>
+            </Link>
+            <Link href={`/teacher/courses/${courseId}/modify`}>
+              <Button variant="outline">
+                <Wand2 className="w-4 h-4 mr-2" />
+                AI Modify
               </Button>
             </Link>
             <Button

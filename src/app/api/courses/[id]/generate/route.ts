@@ -13,6 +13,8 @@ import {
   generateInteractiveModuleContent,
   generateLearningOutcomes,
   generateAssessment,
+  generateCodeQuestionsFromContent,
+  mapCodeQuestionsToModules,
 } from '@/lib/ai/anthropic';
 import { ApiResponse, ContentBlock } from '@/types';
 
@@ -105,6 +107,34 @@ function sanitizeContentBlocks(blocks: any[]): ContentBlock[] {
           statement: interaction.statement || '',
           options,
         };
+      } else if (interactionType === 'code') {
+        const testCases = Array.isArray(interaction.testCases)
+          ? interaction.testCases.map((tc: any, tcIndex: number) => ({
+              id: tc.id || `test_${tcIndex + 1}`,
+              input: tc.input || '',
+              expectedOutput: tc.expectedOutput || '',
+              isHidden: tc.isHidden || false,
+              description: tc.description || '',
+            }))
+          : [];
+
+        sanitizedBlock.interaction = {
+          type: 'code' as const,
+          prompt: interaction.prompt || interaction.question || '',
+          language: interaction.language || 'javascript',
+          starterCode: interaction.starterCode || '',
+          solutionCode: interaction.solutionCode || '',
+          testCases,
+          hints: Array.isArray(interaction.hints) ? interaction.hints : [],
+          rubric: interaction.rubric || '',
+          timeLimit: interaction.timeLimit || 300,
+          memoryLimit: interaction.memoryLimit || 128,
+          points: interaction.points || 20,
+          difficulty: interaction.difficulty || 'medium',
+          conceptsAssessed: Array.isArray(interaction.conceptsAssessed)
+            ? interaction.conceptsAssessed
+            : [],
+        };
       }
     }
 
@@ -162,16 +192,31 @@ export async function POST(
       await course.save();
     }
 
-    // Get request body for interactive options
+    // Get request body for interactive options and teacher instructions
     let interactiveMode = true;
     let interactionFrequency: 'low' | 'medium' | 'high' = 'medium';
+    let teacherInstructions: any = {};
     try {
       const body = await req.json();
       interactiveMode = body.interactiveMode !== false;
       interactionFrequency = body.interactionFrequency || 'medium';
+      teacherInstructions = body.teacherInstructions || {};
+
+      // Save teacher instructions to course
+      if (Object.keys(teacherInstructions).length > 0) {
+        course.teacherInstructions = teacherInstructions;
+        await course.save();
+      }
     } catch {
       // Default values if no body
     }
+
+    // Use teacher instructions if available
+    const includeCodeQuestions = teacherInstructions.includeCodeQuestions || false;
+    const codeQuestionTypes = teacherInstructions.codeQuestionTypes || ['implementation', 'completion'];
+    const preferredLanguages = teacherInstructions.preferredLanguages || ['javascript', 'python'];
+    const difficultyDistribution = teacherInstructions.difficultyDistribution || { easy: 30, medium: 50, hard: 20 };
+    const generalInstructions = teacherInstructions.generalInstructions || '';
 
     // Generate learning outcomes for the course
     console.log('Generating learning outcomes...');
@@ -341,6 +386,88 @@ export async function POST(
         });
       } catch (finalError) {
         console.error('Failed to generate final assessment:', finalError);
+      }
+    }
+
+    // Generate code-based questions if teacher requested
+    if (includeCodeQuestions && course.codeResources && course.codeResources.length > 0) {
+      try {
+        console.log('Generating code-based questions from resources...');
+
+        // Get all modules for mapping
+        const allModulesForCode = await Module.find({ chapterId: { $in: chapterIds } });
+        const moduleInfos = allModulesForCode.map((m: any) => ({
+          id: m._id.toString(),
+          title: m.title,
+          content: m.content,
+          keyPoints: m.aiGeneratedContent?.keyPoints || [],
+        }));
+
+        // Generate code questions for each resource
+        for (const resource of course.codeResources) {
+          if (!resource.content) continue;
+
+          try {
+            const questions = await generateCodeQuestionsFromContent(
+              resource.content,
+              resource.language,
+              moduleInfos.map((m: any) => m.title),
+              codeQuestionTypes,
+              'medium', // Default difficulty
+              2 // Questions per resource
+            );
+
+            // Map questions to modules
+            const mappings = await mapCodeQuestionsToModules(questions, moduleInfos);
+
+            // Add questions to modules
+            for (const mapping of mappings) {
+              const module = allModulesForCode.find(
+                (m: any) => m._id.toString() === mapping.moduleId
+              );
+              if (!module) continue;
+
+              const question = questions[mapping.questionIndex];
+              const contentBlocks = (module as any).contentBlocks || [];
+
+              const codeBlock: ContentBlock = {
+                id: `code_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                order: contentBlocks.length + 1,
+                type: 'interaction',
+                interaction: {
+                  type: 'code',
+                  prompt: question.prompt,
+                  language: question.language as any,
+                  starterCode: question.starterCode,
+                  solutionCode: question.solutionCode,
+                  testCases: question.testCases,
+                  hints: question.hints,
+                  rubric: 'Evaluate based on correctness, code quality, and efficiency.',
+                  timeLimit: question.difficulty === 'easy' ? 300 : question.difficulty === 'medium' ? 600 : 900,
+                  memoryLimit: 128,
+                  points: question.points,
+                  difficulty: question.difficulty,
+                  conceptsAssessed: question.conceptsAssessed,
+                },
+                conceptKey: `code_${question.conceptsAssessed[0] || 'general'}`,
+                isRequired: true,
+              };
+
+              contentBlocks.push(codeBlock);
+              (module as any).contentBlocks = contentBlocks;
+              await module.save();
+            }
+
+            // Update resource with mapped modules
+            resource.mappedModuleIds = mappings.map((m: any) => m.moduleId);
+          } catch (codeError) {
+            console.error('Error generating code questions for resource:', codeError);
+          }
+        }
+
+        await course.save();
+      } catch (codeGenError) {
+        console.error('Failed to generate code questions:', codeGenError);
       }
     }
 

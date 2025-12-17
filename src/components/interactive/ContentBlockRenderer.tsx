@@ -6,6 +6,7 @@ import FillBlankInteraction from './interactions/FillBlankInteraction';
 import ReflectionInteraction from './interactions/ReflectionInteraction';
 import RevealInteraction from './interactions/RevealInteraction';
 import ConfirmInteraction from './interactions/ConfirmInteraction';
+import CodeInteraction from './interactions/CodeInteraction';
 
 interface ContentBlockRendererProps {
   block: ContentBlock;
@@ -105,6 +106,15 @@ export default function ContentBlockRenderer({
 
         {interaction.type === 'confirm' && (
           <ConfirmInteraction
+            interaction={interaction as any}
+            onSubmit={handleSubmit}
+            disabled={disabled}
+            previousResponse={previousResponse?.response as any}
+          />
+        )}
+
+        {interaction.type === 'code' && (
+          <CodeInteraction
             interaction={interaction as any}
             onSubmit={handleSubmit}
             disabled={disabled}

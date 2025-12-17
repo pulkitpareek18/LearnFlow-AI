@@ -4,15 +4,22 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Helper function to extract JSON from AI response (handles markdown code blocks)
+// Helper function to extract JSON from AI response (handles markdown code blocks and truncation)
 function extractJSON(text: string): string {
   // Remove markdown code blocks if present
   let cleaned = text.trim();
 
-  // Handle ```json ... ``` format
-  const jsonBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonBlockMatch) {
-    cleaned = jsonBlockMatch[1].trim();
+  // Handle ```json ... ``` format - match both complete and incomplete code blocks
+  // First try to match a complete code block
+  const completeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (completeBlockMatch) {
+    cleaned = completeBlockMatch[1].trim();
+  } else {
+    // If no complete block, try to extract content after ```json without closing ```
+    const incompleteBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*)/);
+    if (incompleteBlockMatch) {
+      cleaned = incompleteBlockMatch[1].trim();
+    }
   }
 
   // If still not valid JSON, try to find JSON object/array
@@ -21,6 +28,137 @@ function extractJSON(text: string): string {
     if (jsonStart !== -1) {
       cleaned = cleaned.substring(jsonStart);
     }
+  }
+
+  // Try to repair truncated JSON by finding the last valid closing bracket
+  // and truncating there if needed
+  cleaned = repairTruncatedJSON(cleaned);
+
+  return cleaned;
+}
+
+// Helper function to attempt to repair truncated JSON
+function repairTruncatedJSON(json: string): string {
+  // First, try parsing as-is
+  try {
+    JSON.parse(json);
+    return json;
+  } catch {
+    // JSON is invalid, try to repair it
+  }
+
+  // Count brackets to find imbalance
+  let braceCount = 0;
+  let bracketCount = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') braceCount++;
+      else if (char === '}') braceCount--;
+      else if (char === '[') bracketCount++;
+      else if (char === ']') bracketCount--;
+    }
+  }
+
+  // If we're inside a string, close it
+  if (inString) {
+    json += '"';
+  }
+
+  // Add missing closing brackets/braces
+  // Close any open arrays first, then objects
+  while (bracketCount > 0) {
+    json += ']';
+    bracketCount--;
+  }
+  while (braceCount > 0) {
+    json += '}';
+    braceCount--;
+  }
+
+  // Try to parse again after repair
+  try {
+    JSON.parse(json);
+    return json;
+  } catch {
+    // If still invalid, try a more aggressive approach:
+    // Find the last valid JSON-like structure by working backwards
+    return tryFindValidJSONEnd(json);
+  }
+}
+
+// Try to find a valid JSON ending by working backwards
+function tryFindValidJSONEnd(json: string): string {
+  // Start from the end and try to find a valid JSON by removing characters
+  // This is a last-resort approach for severely truncated responses
+
+  // First, look for common truncation patterns and try to complete them
+  // Remove trailing incomplete values
+  let cleaned = json
+    .replace(/,\s*$/, '') // Remove trailing comma
+    .replace(/:\s*$/, ': null') // Complete trailing colon with null
+    .replace(/"\s*$/, '"') // Ensure string is closed
+    .replace(/,\s*"\w+"\s*$/, ''); // Remove incomplete key-value start
+
+  // Count and fix brackets again
+  let braceCount = 0;
+  let bracketCount = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') braceCount++;
+      else if (char === '}') braceCount--;
+      else if (char === '[') bracketCount++;
+      else if (char === ']') bracketCount--;
+    }
+  }
+
+  // Close brackets
+  while (bracketCount > 0) {
+    cleaned += ']';
+    bracketCount--;
+  }
+  while (braceCount > 0) {
+    cleaned += '}';
+    braceCount--;
   }
 
   return cleaned;
@@ -1104,6 +1242,408 @@ Only include the formats requested. If a format is not in the target list, omit 
   } catch (error) {
     console.error('Failed to parse AI response:', textContent.text);
     throw new Error('Failed to parse multi-modal content');
+  }
+}
+
+/**
+ * Grade a student's code submission using AI
+ */
+export interface CodeGradeResult {
+  feedback: string;
+  suggestions: string[];
+  codeQualityNotes: string[];
+  codeQualityScore: number; // 0-1
+  testResults: {
+    testCaseId: string;
+    passed: boolean;
+    actualOutput?: string;
+    expectedOutput: string;
+    error?: string;
+    executionTime?: number;
+  }[];
+}
+
+export async function gradeCodeResponse(
+  prompt: string,
+  studentCode: string,
+  language: string,
+  solutionCode: string | undefined,
+  testCases: { id: string; input: string; expectedOutput: string; isHidden: boolean; description?: string }[],
+  rubric: string | undefined,
+  maxPoints: number
+): Promise<CodeGradeResult> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2048,
+    messages: [
+      {
+        role: 'user',
+        content: `You are an expert code reviewer and grader. Evaluate the following code submission.
+
+Problem Statement:
+${prompt}
+
+Programming Language: ${language}
+
+Student's Code:
+\`\`\`${language}
+${studentCode}
+\`\`\`
+
+${solutionCode ? `Reference Solution:
+\`\`\`${language}
+${solutionCode}
+\`\`\`
+` : ''}
+
+Test Cases:
+${testCases.map((tc, i) => `Test ${i + 1}${tc.description ? ` (${tc.description})` : ''}:
+  Input: ${tc.input || '(no input)'}
+  Expected Output: ${tc.expectedOutput}`).join('\n')}
+
+${rubric ? `Grading Rubric:
+${rubric}` : ''}
+
+Maximum Points: ${maxPoints}
+
+Please evaluate the code and provide:
+1. Run each test case mentally/logically and determine if the code would produce the expected output
+2. Code quality assessment (style, readability, efficiency, best practices)
+3. Constructive feedback for the student
+4. Specific suggestions for improvement
+
+Be fair but thorough. Consider:
+- Correctness: Does the code solve the problem?
+- Efficiency: Is the solution reasonably efficient?
+- Style: Does it follow good coding practices for ${language}?
+- Edge cases: Are potential edge cases handled?
+
+Respond in valid JSON format:
+{
+  "feedback": "Overall feedback about the submission...",
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
+  "codeQualityNotes": ["Note about code quality 1", "Note 2"],
+  "codeQualityScore": 0.8,
+  "testResults": [
+    {
+      "testCaseId": "test_id",
+      "passed": true,
+      "actualOutput": "What the code would output",
+      "expectedOutput": "Expected output",
+      "error": null,
+      "executionTime": 10
+    }
+  ]
+}
+
+Important: Simulate running the code logically for each test case. Don't actually execute code, but reason through what the output would be.`,
+      },
+    ],
+  });
+
+  const textContent = response.content[0];
+  if (textContent.type !== 'text') {
+    throw new Error('Unexpected response type');
+  }
+
+  try {
+    const jsonText = extractJSON(textContent.text);
+    return JSON.parse(jsonText);
+  } catch {
+    console.error('Failed to parse AI code grade response:', textContent.text);
+    // Return a default response if parsing fails
+    return {
+      feedback: 'Your code has been reviewed. Please check the test results below.',
+      suggestions: ['Consider reviewing your solution for potential improvements.'],
+      codeQualityNotes: ['Code quality assessment is pending.'],
+      codeQualityScore: 0.5,
+      testResults: testCases.map((tc) => ({
+        testCaseId: tc.id,
+        passed: false,
+        expectedOutput: tc.expectedOutput,
+        error: 'Unable to evaluate',
+      })),
+    };
+  }
+}
+
+/**
+ * Generate code-based questions from code files or GitHub content
+ */
+export interface GeneratedCodeQuestion {
+  prompt: string;
+  language: string;
+  starterCode?: string;
+  solutionCode: string;
+  testCases: {
+    id: string;
+    input: string;
+    expectedOutput: string;
+    isHidden: boolean;
+    description?: string;
+  }[];
+  hints: string[];
+  difficulty: 'easy' | 'medium' | 'hard';
+  conceptsAssessed: string[];
+  points: number;
+  relatedModuleKeywords: string[];
+}
+
+export async function generateCodeQuestionsFromContent(
+  codeContent: string,
+  language: string,
+  moduleTopics: string[],
+  questionTypes: ('implementation' | 'debugging' | 'completion' | 'review')[],
+  difficulty: 'easy' | 'medium' | 'hard',
+  count: number = 3
+): Promise<GeneratedCodeQuestion[]> {
+  const questionTypeDescriptions = {
+    implementation: 'Write a complete function/solution from scratch',
+    debugging: 'Find and fix bugs in the given code',
+    completion: 'Complete partially written code',
+    review: 'Review code and answer questions about it',
+  };
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8192,
+    messages: [
+      {
+        role: 'user',
+        content: `You are an expert programming instructor. Generate ${count} coding exercises based on the following code content.
+
+Code Content (${language}):
+\`\`\`${language}
+${codeContent.substring(0, 10000)}${codeContent.length > 10000 ? '\n... (truncated)' : ''}
+\`\`\`
+
+Related Module Topics: ${moduleTopics.join(', ')}
+
+Question Types to Generate: ${questionTypes.map(t => `${t} (${questionTypeDescriptions[t]})`).join(', ')}
+
+Difficulty Level: ${difficulty}
+
+Create ${count} coding questions that:
+1. Are inspired by or related to the code content above
+2. Test understanding of the concepts shown
+3. Match the specified difficulty level
+4. Cover the question types requested
+
+For each question, provide:
+- A clear problem statement/prompt
+- Starter code (if applicable)
+- A reference solution
+- 3-5 test cases (mix of visible and hidden)
+- 2-3 hints
+- Concepts being assessed
+- Keywords to help map to related modules
+
+IMPORTANT: Respond with ONLY valid JSON, no markdown code blocks or other formatting.
+{
+  "questions": [
+    {
+      "prompt": "Clear problem description...",
+      "language": "${language}",
+      "starterCode": "// Optional starter template",
+      "solutionCode": "// Complete solution",
+      "testCases": [
+        {
+          "id": "test_1",
+          "input": "input value",
+          "expectedOutput": "expected result",
+          "isHidden": false,
+          "description": "Tests basic functionality"
+        }
+      ],
+      "hints": ["Hint 1", "Hint 2"],
+      "difficulty": "${difficulty}",
+      "conceptsAssessed": ["loops", "arrays"],
+      "points": 20,
+      "relatedModuleKeywords": ["arrays", "iteration", "data structures"]
+    }
+  ]
+}`,
+      },
+    ],
+  });
+
+  const textContent = response.content[0];
+  if (textContent.type !== 'text') {
+    throw new Error('Unexpected response type');
+  }
+
+  try {
+    const jsonText = extractJSON(textContent.text);
+    const parsed = JSON.parse(jsonText);
+    return parsed.questions;
+  } catch (parseError) {
+    console.error('Failed to parse AI code questions response.');
+    console.error('Parse error:', parseError);
+    console.error('Raw response length:', textContent.text.length);
+    console.error('Response preview:', textContent.text.substring(0, 500) + '...');
+    console.error('Response end:', '...' + textContent.text.substring(textContent.text.length - 200));
+    // Return empty array instead of throwing to allow partial success
+    return [];
+  }
+}
+
+/**
+ * Map generated code questions to relevant course modules
+ */
+export async function mapCodeQuestionsToModules(
+  questions: GeneratedCodeQuestion[],
+  modules: { id: string; title: string; content: string; keyPoints?: string[] }[]
+): Promise<{ questionIndex: number; moduleId: string; relevanceScore: number }[]> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2048,
+    messages: [
+      {
+        role: 'user',
+        content: `You are an expert curriculum designer. Map the following code questions to the most relevant course modules.
+
+Code Questions:
+${questions.map((q, i) => `Question ${i + 1}:
+  Prompt: ${q.prompt.substring(0, 200)}...
+  Concepts: ${q.conceptsAssessed.join(', ')}
+  Keywords: ${q.relatedModuleKeywords.join(', ')}`).join('\n\n')}
+
+Available Modules:
+${modules.map((m, i) => `Module ${i + 1} (ID: ${m.id}):
+  Title: ${m.title}
+  Content Summary: ${m.content.substring(0, 300)}...
+  Key Points: ${m.keyPoints?.join(', ') || 'N/A'}`).join('\n\n')}
+
+For each question, determine which module it best fits into based on:
+1. Concept alignment
+2. Topic relevance
+3. Difficulty progression
+
+IMPORTANT: Respond with ONLY valid JSON, no markdown code blocks or other formatting.
+{
+  "mappings": [
+    {
+      "questionIndex": 0,
+      "moduleId": "module_id",
+      "relevanceScore": 0.9
+    }
+  ]
+}`,
+      },
+    ],
+  });
+
+  const textContent = response.content[0];
+  if (textContent.type !== 'text') {
+    throw new Error('Unexpected response type');
+  }
+
+  try {
+    const jsonText = extractJSON(textContent.text);
+    const parsed = JSON.parse(jsonText);
+    return parsed.mappings;
+  } catch {
+    console.error('Failed to parse module mappings:', textContent.text);
+    // Return default mappings (first module for all)
+    return questions.map((_, i) => ({
+      questionIndex: i,
+      moduleId: modules[0]?.id || '',
+      relevanceScore: 0.5,
+    }));
+  }
+}
+
+/**
+ * Modify course content based on teacher prompt
+ */
+export async function modifyCourseContentWithPrompt(
+  currentContent: any, // Current course structure with chapters/modules
+  teacherPrompt: string,
+  teacherInstructions: any
+): Promise<{
+  modifications: {
+    type: 'add' | 'modify' | 'remove';
+    target: 'chapter' | 'module' | 'interaction';
+    targetId?: string;
+    changes: any;
+    reason: string;
+  }[];
+  summary: string;
+}> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8192,
+    messages: [
+      {
+        role: 'user',
+        content: `You are an expert curriculum designer. The teacher wants to modify their course content.
+
+Current Course Structure:
+${JSON.stringify(currentContent, null, 2).substring(0, 8000)}
+
+Teacher's Modification Request:
+"${teacherPrompt}"
+
+Additional Teacher Instructions/Preferences:
+${JSON.stringify(teacherInstructions, null, 2)}
+
+Based on the teacher's request, determine what modifications should be made to the course.
+
+IMPORTANT: Respond with ONLY valid JSON, no markdown code blocks or other formatting.
+
+{
+  "modifications": [
+    {
+      "type": "add",
+      "target": "interaction",
+      "targetId": "module_id_to_add_to",
+      "changes": {
+        "contentBlock": {
+          "id": "new_block_id",
+          "type": "interaction",
+          "interaction": {
+            "type": "code",
+            "prompt": "...",
+            "language": "python",
+            ...
+          }
+        }
+      },
+      "reason": "Adding code exercise as requested"
+    }
+  ],
+  "summary": "Summary of all modifications made"
+}
+
+Types of modifications:
+- add: Add new content (chapter, module, or interaction)
+- modify: Change existing content
+- remove: Remove content
+
+Be specific about what should change and provide the actual content for additions.`,
+      },
+    ],
+  });
+
+  const textContent = response.content[0];
+  if (textContent.type !== 'text') {
+    throw new Error('Unexpected response type');
+  }
+
+  try {
+    const jsonText = extractJSON(textContent.text);
+    return JSON.parse(jsonText);
+  } catch (parseError) {
+    console.error('Failed to parse course modifications.');
+    console.error('Parse error:', parseError);
+    console.error('Raw response length:', textContent.text.length);
+    console.error('Response preview:', textContent.text.substring(0, 500) + '...');
+    console.error('Response end:', '...' + textContent.text.substring(textContent.text.length - 200));
+    // Return empty modifications instead of throwing to provide graceful failure
+    return {
+      modifications: [],
+      summary: 'Failed to parse AI response. Please try again with a simpler request.',
+    };
   }
 }
 

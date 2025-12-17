@@ -13,6 +13,11 @@ import {
   FileText,
   Sparkles,
   CheckCircle,
+  Code2,
+  Github,
+  Upload,
+  X,
+  Settings,
 } from 'lucide-react';
 import {
   Button,
@@ -24,6 +29,7 @@ import {
   CardContent,
 } from '@/components/ui';
 import PDFUpload from '@/components/forms/PDFUpload';
+import { TeacherInstructions, CodeResource, ProgrammingLanguage } from '@/types';
 
 const courseSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters').max(100),
@@ -32,7 +38,28 @@ const courseSchema = z.object({
 
 type CourseInput = z.infer<typeof courseSchema>;
 
-type Step = 'details' | 'upload' | 'generate' | 'complete';
+type Step = 'details' | 'upload' | 'instructions' | 'generate' | 'complete';
+
+const PROGRAMMING_LANGUAGES: { value: ProgrammingLanguage; label: string }[] = [
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'c', label: 'C' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'html', label: 'HTML' },
+  { value: 'css', label: 'CSS' },
+  { value: 'sql', label: 'SQL' },
+];
+
+const CODE_QUESTION_TYPES = [
+  { value: 'implementation', label: 'Implementation (Write from scratch)' },
+  { value: 'debugging', label: 'Debugging (Find and fix bugs)' },
+  { value: 'completion', label: 'Completion (Complete partial code)' },
+  { value: 'review', label: 'Review (Answer questions about code)' },
+];
 
 export default function NewCoursePage() {
   const router = useRouter();
@@ -41,6 +68,27 @@ export default function NewCoursePage() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
+
+  // Teacher instructions state
+  const [teacherInstructions, setTeacherInstructions] = useState<TeacherInstructions>({
+    generalInstructions: '',
+    includeCodeQuestions: false,
+    codeQuestionTypes: ['implementation', 'completion'],
+    preferredLanguages: ['javascript', 'python'],
+    difficultyDistribution: { easy: 30, medium: 50, hard: 20 },
+    focusAreas: [],
+    excludeTopics: [],
+    assessmentPreferences: {
+      includeQuizzes: true,
+      includeCodingChallenges: false,
+      includeReflections: true,
+    },
+  });
+
+  // Code resources state
+  const [codeResources, setCodeResources] = useState<CodeResource[]>([]);
+  const [githubUrl, setGithubUrl] = useState('');
+  const [isAddingResource, setIsAddingResource] = useState(false);
 
   const {
     register,
@@ -54,6 +102,7 @@ export default function NewCoursePage() {
   const steps = [
     { id: 'details', label: 'Course Details', icon: BookOpen },
     { id: 'upload', label: 'Upload PDF', icon: FileText },
+    { id: 'instructions', label: 'AI Instructions', icon: Settings },
     { id: 'generate', label: 'Generate Content', icon: Sparkles },
     { id: 'complete', label: 'Complete', icon: CheckCircle },
   ];
@@ -96,6 +145,53 @@ export default function NewCoursePage() {
     }
   };
 
+  const handleAddGithubResource = async () => {
+    if (!githubUrl.trim() || !courseId) return;
+
+    setIsAddingResource(true);
+    setError('');
+
+    try {
+      const response = await fetch(`/api/courses/${courseId}/code-resources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'github_file',
+          url: githubUrl,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to add code resource');
+      }
+
+      setCodeResources([...codeResources, result.data]);
+      setGithubUrl('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add code resource');
+    } finally {
+      setIsAddingResource(false);
+    }
+  };
+
+  const handleRemoveResource = async (resourceId: string) => {
+    if (!courseId) return;
+
+    try {
+      await fetch(`/api/courses/${courseId}/code-resources`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resourceId }),
+      });
+
+      setCodeResources(codeResources.filter((r) => r.id !== resourceId));
+    } catch (err) {
+      console.error('Failed to remove resource:', err);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!courseId) return;
 
@@ -105,6 +201,12 @@ export default function NewCoursePage() {
     try {
       const response = await fetch(`/api/courses/${courseId}/generate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interactiveMode: true,
+          interactionFrequency: 'medium',
+          teacherInstructions,
+        }),
       });
 
       const result = await response.json();
@@ -249,9 +351,280 @@ export default function NewCoursePage() {
                   Back
                 </Button>
                 <Button
-                  onClick={() => setCurrentStep('generate')}
+                  onClick={() => setCurrentStep('instructions')}
                   disabled={!pdfUrl}
                 >
+                  Continue
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </CardContent>
+          </>
+        )}
+
+        {currentStep === 'instructions' && (
+          <>
+            <CardHeader>
+              <CardTitle>AI Generation Instructions</CardTitle>
+              <CardDescription>
+                Customize how AI generates your course content and add code resources
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* General Instructions */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Custom Instructions for AI
+                </label>
+                <textarea
+                  className="w-full px-4 py-2.5 bg-input text-input-text border border-input-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none placeholder:text-input-placeholder"
+                  rows={4}
+                  placeholder="Add any specific instructions for how the AI should generate your course content. For example: 'Focus on practical examples', 'Include more exercises after each concept', 'Use simple language for beginners'..."
+                  value={teacherInstructions.generalInstructions || ''}
+                  onChange={(e) =>
+                    setTeacherInstructions({
+                      ...teacherInstructions,
+                      generalInstructions: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              {/* Code Questions Toggle */}
+              <div className="border border-border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Code2 className="w-5 h-5 text-primary" />
+                    <span className="font-medium text-foreground">
+                      Include Coding Exercises
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={teacherInstructions.includeCodeQuestions}
+                      onChange={(e) =>
+                        setTeacherInstructions({
+                          ...teacherInstructions,
+                          includeCodeQuestions: e.target.checked,
+                          assessmentPreferences: {
+                            ...teacherInstructions.assessmentPreferences!,
+                            includeCodingChallenges: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    <div className="w-11 h-6 bg-border peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                  </label>
+                </div>
+
+                {teacherInstructions.includeCodeQuestions && (
+                  <div className="space-y-4 pt-4 border-t border-border">
+                    {/* Programming Languages */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Programming Languages
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {PROGRAMMING_LANGUAGES.map((lang) => (
+                          <button
+                            key={lang.value}
+                            type="button"
+                            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                              teacherInstructions.preferredLanguages?.includes(lang.value)
+                                ? 'bg-primary text-white border-primary'
+                                : 'bg-surface border-border text-foreground hover:border-primary'
+                            }`}
+                            onClick={() => {
+                              const current = teacherInstructions.preferredLanguages || [];
+                              if (current.includes(lang.value)) {
+                                setTeacherInstructions({
+                                  ...teacherInstructions,
+                                  preferredLanguages: current.filter((l) => l !== lang.value),
+                                });
+                              } else {
+                                setTeacherInstructions({
+                                  ...teacherInstructions,
+                                  preferredLanguages: [...current, lang.value],
+                                });
+                              }
+                            }}
+                          >
+                            {lang.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Question Types */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Question Types
+                      </label>
+                      <div className="space-y-2">
+                        {CODE_QUESTION_TYPES.map((type) => (
+                          <label key={type.value} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="rounded border-border text-primary focus:ring-primary"
+                              checked={teacherInstructions.codeQuestionTypes?.includes(type.value as any)}
+                              onChange={(e) => {
+                                const current = teacherInstructions.codeQuestionTypes || [];
+                                if (e.target.checked) {
+                                  setTeacherInstructions({
+                                    ...teacherInstructions,
+                                    codeQuestionTypes: [...current, type.value as any],
+                                  });
+                                } else {
+                                  setTeacherInstructions({
+                                    ...teacherInstructions,
+                                    codeQuestionTypes: current.filter((t) => t !== type.value),
+                                  });
+                                }
+                              }}
+                            />
+                            <span className="text-sm text-foreground">{type.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* GitHub Code Resources */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        <Github className="w-4 h-4 inline mr-1" />
+                        Add Code from GitHub
+                      </label>
+                      <p className="text-xs text-muted mb-2">
+                        Add GitHub file URLs to generate relevant coding exercises
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="flex-1 px-4 py-2 bg-input text-input-text border border-input-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                          placeholder="https://github.com/user/repo/blob/main/file.js"
+                          value={githubUrl}
+                          onChange={(e) => setGithubUrl(e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          onClick={handleAddGithubResource}
+                          disabled={!githubUrl.trim() || isAddingResource}
+                        >
+                          {isAddingResource ? 'Adding...' : 'Add'}
+                        </Button>
+                      </div>
+
+                      {/* Added Resources */}
+                      {codeResources.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {codeResources.map((resource) => (
+                            <div
+                              key={resource.id}
+                              className="flex items-center justify-between p-2 bg-surface-secondary rounded-lg"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Code2 className="w-4 h-4 text-primary" />
+                                <span className="text-sm text-foreground truncate max-w-[250px]">
+                                  {resource.fileName}
+                                </span>
+                                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
+                                  {resource.language}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveResource(resource.id)}
+                                className="text-muted hover:text-error"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Difficulty Distribution */}
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Difficulty Distribution
+                      </label>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-xs text-muted">Easy</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            className="w-full px-3 py-1.5 bg-input text-input-text border border-input-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-center"
+                            value={teacherInstructions.difficultyDistribution?.easy || 30}
+                            onChange={(e) =>
+                              setTeacherInstructions({
+                                ...teacherInstructions,
+                                difficultyDistribution: {
+                                  ...teacherInstructions.difficultyDistribution!,
+                                  easy: parseInt(e.target.value) || 0,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Medium</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            className="w-full px-3 py-1.5 bg-input text-input-text border border-input-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-center"
+                            value={teacherInstructions.difficultyDistribution?.medium || 50}
+                            onChange={(e) =>
+                              setTeacherInstructions({
+                                ...teacherInstructions,
+                                difficultyDistribution: {
+                                  ...teacherInstructions.difficultyDistribution!,
+                                  medium: parseInt(e.target.value) || 0,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Hard</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            className="w-full px-3 py-1.5 bg-input text-input-text border border-input-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-center"
+                            value={teacherInstructions.difficultyDistribution?.hard || 20}
+                            onChange={(e) =>
+                              setTeacherInstructions({
+                                ...teacherInstructions,
+                                difficultyDistribution: {
+                                  ...teacherInstructions.difficultyDistribution!,
+                                  hard: parseInt(e.target.value) || 0,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted mt-1">Percentages should add up to 100%</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentStep('upload')}
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                <Button onClick={() => setCurrentStep('generate')}>
                   Continue
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
@@ -311,7 +684,7 @@ export default function NewCoursePage() {
               <div className="flex justify-between">
                 <Button
                   variant="outline"
-                  onClick={() => setCurrentStep('upload')}
+                  onClick={() => setCurrentStep('instructions')}
                   disabled={isGenerating}
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
